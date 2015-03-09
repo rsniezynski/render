@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 const (
@@ -54,6 +53,10 @@ type Delims struct {
 type Options struct {
 	// Directory to load templates. Default is "templates".
 	Directory string
+	// Function that enumerates files for a given path. Defaults to filepath.Walk.
+	DirectoryWalk func(string, filepath.WalkFunc) error
+	// Function used to read a file under a given path. Defaults to ioutil.ReadFile.
+	TemplateRead func(string) ([]byte, error)
 	// Layout template name. Will not render a layout if blank (""). Defaults to blank ("").
 	Layout string
 	// Extensions to parse template files from. Defaults to [".tmpl"].
@@ -122,6 +125,12 @@ func (r *Render) prepareOptions() {
 	if len(r.opt.Directory) == 0 {
 		r.opt.Directory = "templates"
 	}
+	if r.opt.DirectoryWalk == nil {
+		r.opt.DirectoryWalk = filepath.Walk
+	}
+	if r.opt.TemplateRead == nil {
+		r.opt.TemplateRead = ioutil.ReadFile
+	}
 	if len(r.opt.Extensions) == 0 {
 		r.opt.Extensions = []string{".tmpl"}
 	}
@@ -136,21 +145,18 @@ func (r *Render) compileTemplates() {
 	r.templates.Delims(r.opt.Delims.Left, r.opt.Delims.Right)
 
 	// Walk the supplied directory and compile any files that match our extension list.
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	r.opt.DirectoryWalk(dir, func(path string, info os.FileInfo, err error) error {
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
 		}
 
-		ext := ""
-		if strings.Index(rel, ".") != -1 {
-			ext = "." + strings.Join(strings.Split(rel, ".")[1:], ".")
-		}
+		ext := filepath.Ext(rel)
 
 		for _, extension := range r.opt.Extensions {
 			if ext == extension {
 
-				buf, err := ioutil.ReadFile(path)
+				buf, err := r.opt.TemplateRead(path)
 				if err != nil {
 					panic(err)
 				}
